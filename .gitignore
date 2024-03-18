@@ -1,49 +1,903 @@
-# History files
-.Rhistory
-.Rapp.history
+  # Libraries----
+  library(lubridate)
+  library(tidyverse)
+  library(readxl)
+  library(agridat)
+  library(writexl)
+  library(broom) #linear regression model summary
+  library(glue)
+  library(car)
+  library(openxlsx)
+  library(reshape2)
+  library(data.table)
+  library(rmarkdown)
+  
+  library(ggthemes)#使用tableau的颜色
+  library(esquisse) #use,esquisser
+  library(cols4all)#色版 c4a_gui()交互界面
+  #plot drawing
+  
+  setwd("D:/Chrome_download")
+  
+  
+  
+  #data—Sources are manually renewable----
+  rawdata <- read.csv("历史订单明细脱敏版_20240318_1710726182.csv")
+  pre_apr <- read.csv("预审订单明细_20240318_1710726210.csv")
+  act_channal <- read_xlsx("渠道管理列表.xlsx")
+  channel <- read_excel("渠道管理列表 (1).xlsx")
+  visit_record <- read_xlsx("店面拜访.xlsx")
+  华东员工<- read_xlsx("员工花名册2024-02-01.xlsx")
+  
+  
+  历史累积拜访 <- read.xlsx("累积拜访数据源2112-2212.xlsx")
+  # vist2401 <- read.xlsx("店面拜访记录20240208 (1).xlsx")
+  # vist2307 <- read.xlsx("店面拜访记录202407.xlsx")
+  # vist2308 <- read.xlsx("店面拜访记录202308.xlsx")
+  # vist2309 <- read.xlsx("店面拜访记录202309.xlsx")
+  # vist2310 <- read.xlsx("店面拜访记录202310.xlsx")
+  # vist2311 <- read.xlsx("店面拜访记录202311.xlsx")
+  # vist2312 <- read.xlsx("店面拜访记录202312.xlsx")
+  # vist2306 <- read.xlsx("店面拜访记录202306.xlsx")
+  # vist2305 <- read.xlsx("店面拜访记录202305.xlsx")
+  # vist2304 <- read.xlsx("店面拜访记录202304.xlsx")
+  # vist2303 <- read.xlsx("店面拜访记录202303.xlsx")
+  # vist2302 <- read.xlsx("店面拜访记录202302.xlsx")
+  # vist2301 <- read.xlsx("店面拜访记录202301.xlsx")
+  # vist2112_2210 <- read.xlsx("店面拜访记录202112-202210.xlsx")
+  
 
-# Session Data files
-.RData
-.RDataTmp
+  #已经有新的累积拜访历史数据，新的一个月需要先将拜访表修改开始时间格式为日期,
+  #拜访用时间需要修改为int格式
+  
+  # 累积拜访数据源2112_2212<- rbind(历史累积拜访, #修改新的拜访月)
+  # write.xlsx(累积拜访数据源2112_2212,"D:/Chrome_download/累积拜访数据源2112-2301.xlsx")
+  
+  
+  #Date variants----
+  
+  现在年月 <- paste( year(today()),month(today()),sep = "")
+  
+  #未成交客户跟进时间
+  #未成交客户跟进开始日期 <- paste( year(today()),month(today()),day(1),sep = "/")
+  
+  
+  #9月12日导出的全渠道列表，一般不改，用来匹配最后表格
+  
+  #Background_of_ggplot----
+  
+  
+  #Tidy data----
+  
+  rawdata <- rawdata %>%
+    mutate(
+      融资金额 = 融资金额 / 10000,
+      进件日期 = as.Date(进件日期, format = "%Y-%m-%d"),
+      合同生效日期 = as.Date(合同生效日期, format = "%Y-%m-%d"),
+      金融经理名称  = gsub("\\(.*\\)", "", 金融经理名称) ,
+      金融经理名称  = gsub("\\（.*\\）", "", 金融经理名称),
+      金融顾问名称  = gsub("\\(.*\\)", "", 金融顾问名称)  ,
+      金融顾问名称  = gsub("\\（.*\\）", "", 金融顾问名称)
+    ) %>% 
+    arrange(desc(合同生效日期))
+  
+  pre_apr <- pre_apr %>%
+    mutate(
+      预审提交时间 = as.Date(预审提交时间, format = "%Y-%m-%d"),
+      进件时间 = as.Date(进件时间, format = "%Y-%m-%d"),
+      金融经理 =  gsub("\\(.*\\)", "", 金融经理) ,
+      金融经理 =  gsub("\\（.*\\）", "", 金融经理),
+      金融顾问 =  gsub("\\(.*\\)", "", 金融顾问)  ,
+      金融顾问 =  gsub("\\（.*\\）", "", 金融顾问)
+    )
+  
+  act_channal <- act_channal %>%
+    rename_at('负责员工(金融顾问)', ~'负责员工') %>% 
+    mutate(负责员工 = gsub("\\(.*\\)","",负责员工),
+           负责员工 = gsub("\\（.*\\）","",负责员工))
+  
+  
+  visit_record <- visit_record %>%
+    mutate(
+      拜访开始时间 = as.POSIXlt(拜访开始时间),
+      拜访结束时间 = as.POSIXlt(拜访结束时间),
+      拜访用时 = as.numeric(拜访用时),
+      拜访人 = gsub("\\(.*\\)", "", 拜访人),
+      业务上级 = gsub("\\(.*\\)", "", 业务上级)
+    )
+  
+  
+  
+  
+  #渠道经理顾问表----
+  渠道经理顾问表 <- rawdata %>%
+    filter(合同生效日期 >= today() - 90) %>%
+    arrange(desc(合同生效日期)) %>%
+    select(店面主体, 金融经理名称, 金融顾问名称) %>%
+    unique()
+  
+  
+  
+  
+  #消费融所有进件渠道生效记录----
+  
+  if(FALSE){
+  
+  全渠道预审 <- pre_apr %>%
+    arrange(desc(预审提交时间)) %>%
+    mutate(预审月 = format(预审提交时间, "%Y%m")) %>%
+    group_by(店面主体, 预审月) %>%
+    dplyr::summarise(预审量 = length(申请编号))
+  
+  
+  
+  
+  全渠道进件生效 <- rawdata %>%
+    arrange(desc(合同生效日期)) %>%
+    mutate(
+      进件月 = format(进件日期, "%Y%m"),
+      生效月 = format(合同生效日期, "%Y%m"),
+      进件订单 = case_when(!is.na(进件日期) ~ 1, .default = NULL),
+      生效单量 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"
+                       ~ 1, .default = NULL),
+      生效额 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"
+                      ~ 融资金额, .default = NULL)
+    ) %>%
+    group_by(店面主体, 进件月, 生效月) %>%
+    dplyr::summarise(进件量 = sum(进件订单),
+                     生效量 = sum(生效单量),
+                     生效额 = sum(生效额))
+  
+  
+  全渠道进件 <- 全渠道进件生效 %>%
+    group_by(店面主体, 进件月) %>%
+    dplyr::summarise(进件量 = sum(进件量))
+  
+  全渠道额 <- 全渠道进件生效 %>%
+    group_by(店面主体, 生效月) %>%
+    dplyr::summarise(生效额 = sum(生效额)) %>%
+    na.omit()
+  
+  全渠道预进生量 <- 全渠道进件生效 %>%
+    group_by(店面主体, 生效月) %>%
+    dplyr::summarise(生效量 = sum(生效量)) %>%
+    na.omit() %>%
+    full_join(全渠道进件, join_by("店面主体" == "店面主体", "生效月" == "进件月")) %>%
+    full_join(全渠道预审, join_by("店面主体" == "店面主体", "生效月" == "预审月")) %>%
+    full_join(全渠道额, join_by("店面主体" == "店面主体", "生效月" == "生效月")) %>%
+    mutate_if(., is.numeric, ~ replace(., is.na(.), 0)) %>%
+    select(店面主体, 生效月, 预审量, 进件量, 生效量, 生效额)
+  
+  #Delete four tables below
+  remove(全渠道额, 全渠道进件, 全渠道预审, 全渠道进件生效)
+  
+  write_excel_csv(全渠道预进生量, "全渠道预进生量.csv")
+  
+  }
+  
+  
+  
+  
+  #透视全渠道月生效量----
+  if(FALSE){
+  
+  全渠道月生效量 <- dcast(
+    全渠道预进生量,
+    店面主体 ~ 生效月,
+    sum,
+    value.var = "生效量",
+    margins = TRUE,
+    subset = "生效月" >= 202301
+  )
+  
+  }
+  
+  if (FALSE) {
+    library(formattable)#美化透视表
+    library(kableExtra)
+    
+    #做表格图https://www.littlemissdata.com/blog/prettytables
+    
+    全渠道月生效量col <- formattable(全渠道月生效量,
+                              align = c("c"), #center align
+                              list("店面主体" = formatter(
+                                "span",
+                                style = ~ style(color = "grey", font.weight = "bold")
+                              )))
+  }
+  
+  
+  #write.xlsx(全渠道月生效量col,"D:/Chrome_download/全渠道月生效量.xlsx")
+  
+  
+  #write_excel_csv(全渠道进件生效量,"全渠道进件生效量.csv")
+  
+  
+  
+  if (FALSE) {
+    #电池包团队渠道----
+    
+    电池包成交 <- rawdata %>%
+      filter(合同生效日期 >= "2023-09-01") %>%
+      arrange(desc(合同生效日期)) %>%
+      filter(电池GAP.权益包属性 != "") %>%
+      mutate(
+        电池包选融 = case_when(电池GAP.权益包属性 == "选融" ~ 1, .default = 0),
+        电池包随融 = case_when(电池GAP.权益包属性 == "随融" ~ 1, .default = 0)
+      ) %>%
+      dcast(金融经理名称 + 金融顾问名称 + 店面主体 ~ 电池GAP.权益包属性, margins = TRUE)
+    
+    #write.xlsx(电池包成交,  "D:/Chrome_download/经理顾问门店电池包.xlsx")
+    
+  }
+  
+  #未成交客户表-预审通过未进件明细&终审通过未成交&终审未通过----
+  
+  if (TRUE) {
+    #预审通过未进件明细-
+    #车辆类型 == "二手车"
+    #设定自动生成时间20天前的客户 
+    #as.character(gsub("-","/",date(today())-20))
+    天<- 30
+    
+    预审通过未进件明细 <- pre_apr %>%
+      filter( 业务类型 == "消费融" & is.na(进件时间) & 预审提交时间 >= 
+                as.character(gsub("-","/",date(today())-天))) %>%
+      arrange(desc(预审提交时间)) %>%
+      mutate(预审通过未进件单号 = case_when(
+        预审提交时间 >=  as.character(gsub("-","/",date(today())-天)) &
+          预审结果 == "自动通过" |
+          是否预审复议 == "是" ~ 申请编号,
+        .default = 0
+      )) %>%
+      filter(预审通过未进件单号 != 0) %>%
+      select(预审通过未进件单号, 车辆类型, 客户姓名, 产品名称, 金融经理, 金融顾问, 预审提交时间)
+    
+    
+    #提取 设定时间 进件后的所有单号，和生效日期
+    单号进件和生效 <- rawdata %>%
+      filter(进件日期 >= as.character(gsub("-","/",date(today())-天))) %>%
+      select(申请编号, 进件日期,车辆类型, 合同生效日期)
+    
+    
+    #终审通过未成交-
+    
+    终审通过未成交 <- pre_apr %>%
+      filter( 业务类型 == "消费融" & 进件时间 >= as.character(gsub("-","/",date(today())-天))) %>%
+      arrange(desc(进件时间)) %>%
+      mutate(终审通过结果 = ifelse(最后一次人工审批时间 > 最后一次自动审批时间,
+                             最后一次人工审批结果,
+                             最后一次自动审批结果)) %>%
+      filter(终审通过结果 == "通过") %>%
+      left_join(., 单号进件和生效, join_by("申请编号" == "申请编号",
+                                    "车辆类型" == "车辆类型",
+                                    "进件时间" == "进件日期")) %>%
+      filter(is.na(合同生效日期)) %>%
+      select(申请编号,车辆类型, 客户姓名, 产品名称, 金融经理, 金融顾问, 进件时间)
+    
+    
+    #终审未通过-
+    
+    终审未通过 <- pre_apr %>%
+      filter(业务类型 == "消费融" & 进件时间 >= as.character(gsub("-","/",date(today())-天))) %>%
+      arrange(desc(进件时间)) %>%
+      mutate(终审通过结果 = ifelse(最后一次人工审批时间 > 最后一次自动审批时间,
+                             最后一次人工审批结果,
+                             最后一次自动审批结果)) %>%
+      filter(终审通过结果 != "通过") %>%
+      select(申请编号,车辆类型, 客户姓名, 产品名称, 金融经理, 金融顾问, 进件时间, 终审通过结果)
 
-# User-specific files
-.Ruserdata
+    
+    
+    
 
-# Example code in package build process
-*-Ex.R
+    
+    
+        
+    
+  
+  #Three tables combination----
+  
+  sheets = list("预审通过未进件明细" = 预审通过未进件明细,
+                "终审通过未成交" = 终审通过未成交,
+                "终审未通过" = 终审未通过)
+  
+  write.xlsx(sheets, "D:/Chrome_download/预审通过未进件.终审通过未成交.终审未通过.xlsx")
+  
+}
 
-# Output files from R CMD build
-/*.tar.gz
+#电池包heatmap----
+if(FALSE){
+library(hrbrthemes)
+#准备数据源
+顾问电池包 <- rawdata %>%
+  filter(合同生效日期 >= "2023/09/01" & 电池GAP.权益包属性 != "") %>%
+  arrange(desc(合同生效日期)) %>%
+  group_by(金融经理名称, 金融顾问名称, 店面主体, 电池GAP.权益包属性) %>%
+  summarise(数量 = length(电池GAP.权益包属性))
+text <- data.frame(顾问电池包)
 
-# Output files from R CMD check
-/*.Rcheck/
 
-# RStudio files
-.Rproj.user/
 
-# produced vignettes
-vignettes/*.html
-vignettes/*.pdf
 
-# OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
-.httr-oauth
+if (FALSE) {
+  #画顾问电池包图
+  library(viridis)
+  顾问电池包p <- ggplot(顾问电池包, aes(金融顾问名称, 电池GAP.权益包属性, fill = 数量)) +
+    geom_tile() +
+    scale_fill_viridis(
+      discrete = FALSE,
+      alpha = 1,
+      begin = 0.7,
+      end = 1,
+      direction = -1,
+      option = "A"
+    ) +
+    theme_ipsum(grid = FALSE)
+  
+  经理电池包p <- ggplot(顾问电池包, aes(金融经理名称, 电池GAP.权益包属性, fill = 数量)) +
+    geom_tile() +
+    scale_fill_viridis(
+      alpha = 0.8,
+      begin = 0.5,
+      end = 0.7,
+      direction = -1,
+      discrete = FALSE,
+      option = "A",
+      aesthetics = c("colour", "fill")
+    ) +
+    theme_ipsum(grid = FALSE)
+  
+  
+  library(gridExtra)
+  
+  grid.arrange(经理电池包p , 顾问电池包p , nrow = 2)#合并经理顾问电池包图
+  
+  
+  经理顾问电池包p <- grid.arrange(经理电池包p , 顾问电池包p , ncol = 2, widths = c(10, 10))
+  
+  ggsave(经理顾问电池包p,
+         #保存电池包图
+         filename = "经理顾问电池包p.png",
+         height = 10,
+         width = 20)
+  
+}
 
-# knitr and R markdown default cache directories
-*_cache/
-/cache/
 
-# Temporary files created by R markdown
-*.utf8.md
-*.knit.md
 
-# R Environment Variables
-.Renviron
 
-# pkgdown site
-docs/
+顾问产品额 <- rawdata %>%
+  mutate(融资金额 = 融资金额 / 10000) %>%
+  filter(合同生效日期 >= "2023/09/01") %>%
+  arrange(desc(合同生效日期)) %>%
+  group_by(金融经理名称)
 
-# translation temp files
-po/*~
 
-# RStudio Connect folder
-rsconnect/
+ggplot(顾问产品额, aes(
+  x = 金融顾问名称,
+  y = 融资金额,
+  fill = 金融顾问名称,
+  color = 车辆类型
+)) +
+  geom_point(size = 2) +
+  theme_ipsum(grid = FALSE,
+              axis = TRUE) +
+  scale_color_tableau()
+
+}
+#金融顾问回归分析----
+
+#数据准备
+  if(FALSE){
+
+  #合并历史拜访数据
+  
+  新版本拜访数据<- rbind(vist2401, vist2307, vist2308, vist2309, vist2310, vist2311, vist2312, vist2306, vist2305,
+        vist2304, vist2303, vist2302, vist2301)
+  
+  remove(vist2307, vist2308, vist2309, vist2310, vist2311, vist2312, vist2306, vist2305,
+        vist2304, vist2303, vist2302, vist2301)
+  
+
+  vist2112_2210 <- read.xlsx("店面拜访记录202112-202210.xlsx",colNames = TRUE)
+  
+  员工职位<- 华东员工 %>% 
+    select(姓名,职位名称)
+  str(vist2112_2210)
+  
+  old_vist_history <- vist2112_2210 %>% 
+    left_join(员工职位, join_by("拜访人"=="姓名")) %>% 
+    mutate(拜访开始时间 = paste(开始日期,开始时间),
+           拜访结束时间 = paste(结束日期,结束时间)) %>% 
+    select(所属大区, 所属分公司, 业务上级, 拜访人, 职位名称, 店面编号, 
+           店面名称,主体名称, 拜访开始时间, 拜访结束时间, 拜访是否达标,
+           '拜访时长（分钟）') %>% 
+    rename(大区 = 所属大区, 销售三级类 = 职位名称,
+           是否达标 = 拜访是否达标, 拜访用时 = '拜访时长（分钟）')
+  
+  
+  累积拜访数据源<- rbind(old_vist_history,新版本拜访数据)
+  
+  累积拜访数据源<- 累积拜访数据源 %>% 
+    mutate(
+      业务上级  = gsub("\\(.*\\)", "", 业务上级) ,
+      业务上级  = gsub("\\（.*\\）", "", 业务上级),
+      拜访人  = gsub("\\(.*\\)", "", 拜访人)  ,
+      拜访人  = gsub("\\（.*\\）", "", 拜访人),
+      拜访用时 = as.integer(拜访用时),
+      拜访开始时间 = as.Date(拜访开始时间, format = "%Y-%m-%d %H:%M:%S"),
+      拜访开始时间 = as.Date(拜访开始时间, format = "%Y-%m-%d %H:%M:%S")
+    ) 
+  
+    
+  write.xlsx(累积拜访数据源,"D:/Chrome_download/累积拜访数据源2112-2212.xlsx")
+  #导出历史拜访数据数据源
+  
+  
+  
+  顾问每月拜访数和时间 <- 累积拜访数据源 %>%
+    mutate(年月 = format(拜访开始时间,"%Y%m")) %>% 
+    group_by(年月, 拜访人) %>% 
+    summarize(拜访门店数 = length(主体名称),
+              拜访中位数min = median(拜访用时))
+  }
+
+
+  
+    
+#消费融所有顾问预审进件生效记录----
+if(FALSE){
+
+顾问预审 <- pre_apr %>%
+  arrange(desc(预审提交时间)) %>%
+  mutate(预审月 = format(预审提交时间, "%Y%m")) %>%
+  group_by(金融顾问, 预审月) %>%
+  dplyr::summarise(预审量 = length(申请编号))
+
+
+
+view <- rawdata %>%
+  mutate(
+    进件月 = format(进件日期, "%Y%m"),
+    生效月 = format(合同生效日期, "%Y%m"),
+    进件订单 = case_when(!is.na(进件日期) ~ 1, .default = NULL),
+    生效单量 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"
+                     ~ 1, .default = NULL),
+    生效额 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"
+                    ~ 融资金额, .default = NULL)
+  )
+
+
+write.xlsx(view, "D:/Chrome_download/view.xlsx")
+
+
+顾问全进件 <- view %>%
+  group_by(金融顾问名称, 进件月) %>%
+  dplyr::summarise(进件量 = sum(进件订单))
+
+顾问全生效额 <- view %>%
+  group_by(金融顾问名称, 生效月) %>%
+  dplyr::summarise(生效金额 = sum(生效额, na.rm = TRUE)) %>%
+  na.omit()
+
+
+全顾问活跃门店数 <- view %>%
+  group_by(金融顾问名称, 生效月) %>%
+  summarise(活跃渠道数 = length(unique(店面主体))) %>%
+  na.omit()
+
+#write.xlsx(全顾问活跃门店数,"D:/Chrome_download/全顾问活跃门店数.xlsx")
+
+
+全顾问生效量 <- view %>%
+  group_by(金融顾问名称, 生效月) %>%
+  dplyr::summarise(生效量 = length(生效单量)) %>%
+  na.omit() %>%
+  left_join(顾问全进件, join_by("金融顾问名称" == "金融顾问名称", "生效月" == "进件月")) %>%
+  left_join(顾问预审, join_by("金融顾问名称" == "金融顾问", "生效月" == "预审月")) %>%
+  left_join(顾问全生效额, join_by("金融顾问名称" == "金融顾问名称", "生效月" == "生效月")) %>%
+  left_join(全顾问活跃门店数, join_by("金融顾问名称" == "金融顾问名称", "生效月" == "生效月")) %>%
+  mutate_if(., is.numeric, ~ replace(., is.na(.), 0))
+
+
+write.xlsx(全顾问生效量, "D:/Chrome_download/全顾问生效量.xlsx")
+
+
+
+#全产品销售团队预审进件生效表----
+
+全产品销售团队进件 <- view %>%
+  group_by(产品方案名称, 进件月, 金融经理名称) %>%
+  summarise(进件单量 = sum(进件订单, na.rm = TRUE))
+
+全产品销售团队生效 <- view %>%
+  group_by(产品方案名称, 生效月, 金融经理名称) %>%
+  summarise(生效量 = sum(生效单量, na.rm = TRUE)) %>%
+  na.omit()
+
+全产品销售团队生效额 <- view %>%
+  group_by(产品方案名称, 生效月, 金融经理名称) %>%
+  summarise(生效金额 = sum(生效额, na.rm = TRUE)) %>%
+  na.omit()
+
+全产品销售团队预审 <- pre_apr %>%
+  arrange(desc(预审提交时间)) %>%
+  mutate(预审月 = format(预审提交时间, "%Y%m")) %>%
+  group_by(产品名称, 预审月, 金融经理) %>%
+  dplyr::summarise(预审量 = length(申请编号))
+
+全产品销售团队预进生量 <- 全产品销售团队预审 %>%
+  left_join(全产品销售团队进件,
+            join_by(
+              "产品名称" == "产品方案名称",
+                    "预审月" == "进件月",
+                    "金融经理" == "金融经理名称")) %>%
+  left_join(全产品销售团队生效,
+            join_by(
+              "产品名称" == "产品方案名称",
+                    "预审月" == "生效月",
+                    "金融经理" == "金融经理名称")) %>%
+  left_join(全产品销售团队生效额,
+            join_by(
+              "产品名称" == "产品方案名称",
+                    "预审月" == "生效月",
+                    "金融经理" == "金融经理名称")) %>%
+  mutate_if(., is.numeric, ~ replace(., is.na(.), 0)) %>%
+  rename("日期" = "预审月") 
+
+write.xlsx(全产品销售团队预进生量, "D:/Chrome_download/全产品销售团队预进生量.xlsx")
+
+#remove four temporary tables
+remove(全产品销售团队预审, 全产品销售团队生效额, 全产品销售团队生效, 全产品销售团队进件)
+
+
+#library(plyr)
+全产品销售团队预进生量df <- dcast(
+  全产品销售团队预进生量 ,#data
+  
+  #y轴和x轴
+  产品名称 + 金融经理 ~ 日期,#formula
+  
+  #插入条件
+  #subset = .( 金融经理 == "邓翘"),
+  sum, #fun.aggregate
+  margins = TRUE, #怎么只计算列或者行的合计呢？
+  #计算值的列，默认是最后一列,即融资额，在这里选的是生效量
+  value.var = "生效量"
+)
+
+
+全渠道月生效量 <- dcast(
+  全渠道预进生量,
+  店面主体 ~ 生效月,
+  sum,
+  value.var = "生效量",
+  margins = TRUE,
+  subset = "生效月" >= "202301"
+)
+}
+
+
+if (FALSE) {
+  产品团队生效量额 <- view %>%
+    group_by(生效月, 产品方案名称, 金融经理名称, 金融顾问名称, 店面主体) %>%
+    summarise(成交量 = sum(生效单量, na.rm = TRUE),
+              成交额 = sum(生效额, na.rm = TRUE))
+
+  write_xlsx(产品团队生效量额, "D:/Chrome_download/产品团队生效量额.xlsx")
+}
+
+#esquisser()
+
+library(grid)
+library(ggnewscale)
+library(ggtext)
+library(shadowtext)
+library(patchwork)
+
+# daily data-resources数据源----
+
+顾问合作渠道数 <- act_channal %>%
+  mutate(负责员工 = gsub(",.*","",负责员工)) %>% 
+  group_by(负责员工) %>% 
+  summarise(渠道数量 = n(),
+            二手车渠道数 = sum(业务标签 == "直营二手车"),
+            新车渠道 = 渠道数量 - 二手车渠道数 )
+
+日报数据源 <- rawdata %>% 
+  mutate(生效月 = format(合同生效日期, "%Y%m"),
+         进件月 = format(进件日期, "%Y%m")) %>% 
+  group_by(进件月,生效月,车辆类型,金融经理名称,金融顾问名称) %>% 
+  summarise(
+    活跃渠道 = length(unique(店面主体)),
+    达成台数 = sum(申请状态 != "合同已取消", na.rm = TRUE),
+    达成额 = sum(融资金额,na.rm = TRUE)
+  )
+
+
+
+#预审后进件结果数据-----
+#预审数据中 全年度 ，所有厂商项目，产品，最终审批结果的数据量
+
+
+进件单号产品类目 <- rawdata %>% 
+  select(申请编号,产品类目) #筛选出产品类目匹配预审表
+
+
+
+预审进件后结果 <- pre_apr %>%
+  left_join(. , y= 进件单号产品类目,
+            join_by("申请编号"=="申请编号")) %>%  #筛选出产品类目匹配预审表，方便可视化筛选产品
+  mutate(进件月 = format(进件时间, "%Y%m"))%>% 
+  group_by(进件月,合作项目,产品类别,产品类目,产品名称,
+           金融经理,金融顾问,最后一次自动审批结果,最后一次人工审批结果) %>% 
+  summarise(n = length(申请编号)) %>%
+  drop_na(进件月)    #删除进件月是空值的数
+
+
+write.xlsx(预审进件后结果, "D:/Chrome_download/预审进件后结果.xlsx")
+
+
+#全维度预审进件生效----
+
+单号生效日 <- select(rawdata,申请编号,合同生效日期,申请状态,产品类目) %>% 
+  filter(.,申请状态 != "订单已取消")#选择成交的订单日期
+
+
+pre_apr<- left_join(pre_apr,单号生效日,
+                    join_by("申请编号"=="申请编号")) #将成交订单合并到预审表格中
+
+#write_excel_csv(pre_apr,"df.csv")
+
+全维度预审量 <- pre_apr %>% 
+  mutate(预审月= format(预审提交时间,"%Y%m"),
+           预审结果通过订单 = case_when(预审结果 == "自动通过" ~1,.default = 0),
+         是否预审复议是 = case_when(是否预审复议 == "是" ~1,.default = 0),
+         预审通过 = 预审结果通过订单+是否预审复议是
+  ) %>% 
+  
+  group_by(预审月, 店面城市, 
+           产品类别, 产品类目 ,产品名称, 合作项目,
+           车辆类型,主品牌,
+           金融经理 ,金融顾问, 
+           渠道二级科目名称, 店面主体) %>% 
+  
+  summarise(预审量 =length(申请编号),
+            预审通过 = sum(预审结果通过订单))
+
+
+#write_excel_csv(全维度预审量, file = "全维度预审量.csv")
+
+全维度进件量 <- pre_apr %>% 
+  mutate(进件月 = format(进件时间, "%Y%m"),
+         最后审批通过量 = if_else(最后一次人工审批时间 > 最后一次自动审批时间,
+                           case_when(最后一次人工审批结果=="通过"~1,.default = 0),
+                           case_when(最后一次自动审批结果=="通过"~1,.default = 0))
+  ) %>% 
+  group_by(进件月,店面城市, 
+           产品类别, 产品类目,产品名称, 合作项目,
+           车辆类型,主品牌,
+           金融经理 ,金融顾问,
+           渠道二级科目名称, 店面主体 ) %>%
+  summarise(进件量 = length(申请编号),
+            进件通过 = sum(最后审批通过量))
+
+#write_excel_csv(全维度进件量,"全维度进件量.csv")
+
+
+全维度生效量 <- rawdata %>% 
+  mutate(生效月 = format(合同生效日期, "%Y%m"),
+         生效量 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"~ 1,
+                         .default = 0),
+         生效额 = case_when(!is.na(合同生效日期) & 申请状态 != "订单已取消"~ 融资金额,
+                         .default = 0)
+         
+  ) %>% 
+  
+  group_by(生效月, 店面城市,
+           产品类别, 产品类目, 产品方案名称, 合作项目,
+           车辆类型, 品牌,
+           金融经理名称, 金融顾问名称,
+           渠道二级科目, 店面主体) %>% 
+  
+  summarise(生效量 = sum(生效量),
+            生效额 = sum(生效额, na.rm = TRUE))
+
+#write_excel_csv(全维度生效量,"全维度生效量.csv")
+
+#合并表格
+
+df<- full_join(x= 全维度预审量, y= 全维度进件量 , 
+               join_by("预审月"== "进件月", 
+                       "店面城市"=="店面城市",
+                       "产品类别"=="产品类别",
+                       "产品类目"=="产品类目",
+                       "产品名称"=="产品名称",
+                       "合作项目"=="合作项目",
+                       "车辆类型"=="车辆类型",
+                       "主品牌"=="主品牌",
+                       "金融经理"=="金融经理",
+                       "金融顾问"=="金融顾问",
+                       "渠道二级科目名称"=="渠道二级科目名称",
+                       "店面主体"=="店面主体"
+               ))
+
+
+df2<- full_join(x= df, y= 全维度生效量 , 
+                join_by("预审月"== "生效月", 
+                        "店面城市"=="店面城市",
+                        "产品类别"=="产品类别",
+                        "产品类目"=="产品类目",
+                        "产品名称"=="产品方案名称",
+                        "合作项目"=="合作项目",
+                        "车辆类型"=="车辆类型",
+                        "主品牌"=="品牌",
+                        "金融经理"=="金融经理名称",
+                        "金融顾问"=="金融顾问名称",
+                        "渠道二级科目名称"=="渠道二级科目",
+                        "店面主体"=="店面主体"
+                ))
+
+write_xlsx(df2,"D:/Chrome_download/全维度预审进件生效量.xlsx")
+
+#在全维度门店的基础上计算 每月每顾问的预-生效数据
+
+month_顾问预审进件生效拜访数据 <- df2 %>%
+  group_by(预审月, 金融顾问) %>% 
+  summarize(预审量 = sum(预审量, na.rm = T),
+            预审通过 = sum(预审通过, na.rm = T),
+            预审通过 = sum(预审通过, na.rm = T),
+            进件量 = sum(进件量, na.rm = T),
+            进件通过 = sum(进件通过, na.rm = T),
+            生效量 = sum(生效量, na.rm = T),
+            生效额 = sum(生效额, na.rm = T)
+            ) %>% 
+  left_join(历史累积拜访, join_by("预审月"=="年月", "金融顾问"=="拜访人"))
+  
+  LR_金融顾问 <- lm(生效额 ~ 预审量 + 拜访门店数 + 拜访中位数min, 
+               data = month_顾问预审进件生效拜访数据)
+  
+  summary(LR_金融顾问)
+
+  郑正利历史数据 <- month_顾问预审进件生效拜访数据 %>% 
+    filter(金融顾问 == "郑正利" & 预审量 != 0 )
+  
+  
+  LR_郑正利历史数据 <- lm(生效额 ~ 进件通过 * 预审量 * 进件量, 
+                data = 郑正利历史数据)
+  
+  summary(LR_郑正利历史数据)
+  
+  (plot <- ggplot(郑正利历史数据, 
+                     aes(x = 进件通过, y = 生效额)) +
+      geom_point(aes(colour = 金融顾问)) +                                # scatter plot, coloured by sex
+      labs(x = "门店拜访数", y = "生效额") +
+      stat_smooth(method = "lm", aes(fill = 金融顾问, colour = 金融顾问))+     # adding regression lines for each sex
+      theme_calc())
+
+#活跃门店汇总 
+# t1 <- rawdata %>% 
+#   filter(!is.na(合同生效日期) & 合同生效日期 >= "2023-01-01" ) %>% 
+#   select(店面主体,金融经理名称,金融顾问名称,申请编号) %>% 
+#   group_by(店面主体,金融经理名称) %>% 
+#   summarise(成交量 = length(申请编号)) 
+# 
+# write.xlsx(t1, "D:/Chrome_download/23年成交门店.xlsx" )
+
+
+
+#顾问Boston象限数据源----
+
+顾问Boston象限数据源 <- df2 %>% 
+  group_by(预审月,金融顾问) %>% 
+  summarise( 生效量 = sum(生效量, na.rm = T)) %>% 
+  drop_na(预审月) %>% 
+  group_by(预审月) %>% 
+  mutate(percent = 生效量/ sum(生效量)) %>% 
+  group_by(金融顾问) %>% #聚合顾问
+  mutate(环比 = 生效量 / lag(生效量) - 1) %>% #计算顾问上个月环比 
+  ungroup() #再解开聚合
+  
+write.xlsx(顾问Boston象限数据源,"D:/Chrome_download/顾问Boston象限数据源.xlsx")
+
+
+#顾问拜访拜访打卡检核----
+
+
+今天凌时<- floor_date(as.POSIXct(now()),'hour')-(hour(now())*60*60+1)
+
+
+
+
+拜访打卡检核 <- visit_record %>% 
+  filter(拜访开始时间 > 今天凌时) %>% 
+  select(拜访人,店面名称,拜访开始时间) %>% 
+  sample_n(. , 5, replace = FALSE)
+
+
+
+write_xlsx(拜访打卡检核,"D:/Chrome_download/拜访打卡检核.xlsx")
+
+
+if(FALSE){
+
+#月礼品预定随机生成----
+其他礼品 <- 230
+#本子每店5本 <- 100/5
+笔每店10把 <- 100/10 
+
+礼品数量 <- 其他礼品+笔每店10把#+本子每店5本
+
+月礼品预定 <- 渠道经理顾问表 %>% 
+  select(金融经理名称,店面主体) %>% 
+  filter(金融经理名称 != "郭颖") %>% 
+  sample_n(. , 礼品数量, replace = FALSE) 
+
+
+write_xlsx(月礼品预定,"D:/Chrome_download/月礼品预定(R源).xlsx")
+}
+
+str(df2)
+
+#破冰对私问题门店清单----
+#用途：查询这些门店的预审到生效的量
+
+ 破冰对私问题门店清单<- c("三明昇腾汽车销售服务有限公司",
+  "三明鹭翔汽车销售服务有限公司",
+  "莆田市鑫特汽车贸易服务有限公司",
+  "莆田市亿鑫万腾汽车贸易有限公司",
+  "宁德融瑞汽车有限公司",
+  "福清长安汽车有限公司",
+  "福州赢宸汽车销售服务有限公司",
+  "福州赢宸汽车销售服务有限公司",
+  "福州市闽侯广元贸易有限公司",
+  "福州九鼎汽车销售服务有限公司",
+  "福建省步峰汽车贸易有限公司",
+  "闽清县阿希汽车贸易有限公司"
+)
+
+破冰对私问题门店 <- df2 %>% 
+  mutate(预审月 = as.integer(预审月)) %>% 
+  filter(预审月 >= 202301 & #时间维度为23年1月起
+           店面主体 %in%  破冰对私问题门店清单 #在上面设置变量
+         ) %>% 
+  group_by(预审月,店面主体,店面城市,金融经理,金融顾问,
+           预审量,预审通过,进件量,进件通过,生效量,生效额) %>% 
+  summarise(预审量 = sum(预审量),
+            预审通过 = sum(预审通过),
+            进件量 = sum(进件量),
+            进件通过 = sum(进件通过),
+            生效量 = sum(生效量),
+            生效额 = sum(生效额))
+
+对私破冰问题门店成交清单 <-  rawdata %>% 
+  filter(合同生效日期 >= 2023-1-1 & 
+         申请状态 != "合同已取消" &
+         店面主体 %in%  破冰对私问题门店清单  #在上面设置变量
+         )
+
+破冰问题门店清单 <- list("破冰对私问题门店" = 破冰对私问题门店,
+                 "对私破冰问题门店成交清单" = 对私破冰问题门店成交清单)
+
+write.xlsx(破冰问题门店清单, "D:/Chrome_download/破冰对私问题门店.xlsx")
+
+
+tempdata <- read_xlsx("临时数据.xlsx")
+
+#学习data.table package----
+
+library(data.table)
+
+
+text <- rawdata[1:1000,]
+
+text [融资期限 > 36]
+
+write.xlsx(text,"D:/Chrome_download/text.xlsx")
+
+
+埃安进件明细 <- rawdata %>% 
+  filter( year(合同生效日期) == 2024/01/01 & 合作项目 == "广汽新能源") 
+write.xlsx(埃安进件明细,"D:/Chrome_download/埃安进件明细.xlsx")  
+
